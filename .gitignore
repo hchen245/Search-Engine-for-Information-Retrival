@@ -1,0 +1,30 @@
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+*.egg-info/
+dist/
+build/
+
+# Generated index files (large and should not be committed)
+partial_indexes/
+final_index/
+*.txt
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Virtual Environments
+.env
+.venv
