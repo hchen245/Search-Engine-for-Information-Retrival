@@ -4,7 +4,7 @@ A lightweight search engine project for UCI ICS web crawl data.
 
 This project includes:
 - **Indexer (`indexer.py`)**: builds a weighted inverted index from crawled HTML JSON files.
-- **Retriever (`search.py`)**: supports Boolean retrieval (`AND`/`OR`) with TF-IDF ranking.
+- **Retriever (`search.py`)**: supports Boolean **AND-only** retrieval with TF-IDF ranking.
 
 ## Features
 
@@ -66,13 +66,13 @@ python search.py --milestone2 --output milestone2_results.json
 ### 2) Run a single query
 
 ```bash
-python search.py --query "machine learning" --topk 5 --mode and
+python search.py --query "machine learning" --topk 5
 ```
 
 ### 3) Interactive mode
 
 ```bash
-python search.py --interactive --mode and --topk 5
+python search.py --interactive --topk 5
 ```
 
 ## Search Options
@@ -80,8 +80,6 @@ python search.py --interactive --mode and --topk 5
 - `--query "..."` : run one query
 - `--milestone2` : run the 4 required milestone queries
 - `--interactive` : start CLI search loop
-- `--mode {and,or}` : Boolean retrieval mode (default: `and`; AND mode auto-falls back to OR if results are fewer than `topk`)
-- `--strict-and` : disable AND→OR fallback and keep strict AND behavior
 - `--topk N` : number of returned results (default: `5`)
 - `--output path.json` : save results to JSON
 
