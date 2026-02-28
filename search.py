@@ -21,6 +21,7 @@ Features:
 DATA_PATH = "DEV"
 PARTIAL_INDEX_DIR = "partial_indexes"
 FINAL_INDEX_DIR = "final_index"
+FINAL_INDEX_FILE = os.path.join(FINAL_INDEX_DIR, "final_index.txt")
 DOC_MAP_PATH = os.path.join(FINAL_INDEX_DIR, "doc_id_map.json")
 
 MILESTONE_QUERIES = [
@@ -31,6 +32,13 @@ MILESTONE_QUERIES = [
 ]
 
 stemmer = PorterStemmer()
+
+
+def strip_fragment(url):
+    """Return URL without fragment part (#...)."""
+    if not isinstance(url, str):
+        return ""
+    return url.split("#", 1)[0]
 
 
 def tokenize(text):
@@ -58,7 +66,7 @@ def build_doc_id_map_if_missing():
     if os.path.exists(DOC_MAP_PATH):
         with open(DOC_MAP_PATH, "r", encoding="utf-8") as f:
             raw = json.load(f)
-        return {int(doc_id): url for doc_id, url in raw.items()}
+        return {int(doc_id): strip_fragment(url) for doc_id, url in raw.items()}
 
     os.makedirs(FINAL_INDEX_DIR, exist_ok=True)
     doc_id_to_url = {}
@@ -74,7 +82,7 @@ def build_doc_id_map_if_missing():
             try:
                 with open(path, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                doc_id_to_url[doc_id] = data.get("url", "")
+                doc_id_to_url[doc_id] = strip_fragment(data.get("url", ""))
             except Exception:
                 doc_id_to_url[doc_id] = ""
             doc_id += 1
@@ -113,6 +121,27 @@ def load_query_postings(query_terms):
     """
     needed_terms = set(query_terms)
     merged = {term: defaultdict(int) for term in needed_terms}
+
+    # Prefer merged final index if available.
+    if os.path.exists(FINAL_INDEX_FILE):
+        with open(FINAL_INDEX_FILE, "r", encoding="utf-8") as f:
+            for line in f:
+                if ":" not in line:
+                    continue
+
+                term = line.split(":", 1)[0]
+                if term not in needed_terms:
+                    continue
+
+                _, postings = parse_postings_line(line)
+                for doc_id, tf in postings.items():
+                    merged[term][doc_id] += tf
+        return {term: dict(doc_tf) for term, doc_tf in merged.items()}
+
+    if not os.path.isdir(PARTIAL_INDEX_DIR):
+        raise FileNotFoundError(
+            "No index files found. Run `python indexer.py` to generate final_index/final_index.txt."
+        )
 
     for filename in sorted(os.listdir(PARTIAL_INDEX_DIR)):
         if not filename.startswith("partial_"):
@@ -184,14 +213,21 @@ def and_search(query, doc_id_map, top_k=5):
     scored.sort(key=lambda item: (-item[1], item[0]))
 
     results = []
-    for doc_id, score in scored[:top_k]:
+    seen_urls = set()
+    for doc_id, score in scored:
+        url = doc_id_map.get(doc_id, "")
+        if url in seen_urls:
+            continue
+        seen_urls.add(url)
         results.append(
             {
                 "doc_id": doc_id,
-                "url": doc_id_map.get(doc_id, ""),
+                "url": url,
                 "score": round(score, 6),
             }
         )
+        if len(results) >= top_k:
+            break
 
     return results
 

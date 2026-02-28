@@ -1,110 +1,90 @@
 {
   "cristina lopes": [
     {
-      "doc_id": 827,
-      "url": "http://archive.ics.uci.edu/ml/datasets/Robot+Execution+Failures",
-      "score": 23.044427
-    },
-    {
       "doc_id": 4372,
       "url": "https://chenli.ics.uci.edu/publications/",
       "score": 19.654798
-    },
-    {
-      "doc_id": 328,
-      "url": "http://archive.ics.uci.edu/ml/datasets/Dermatology",
-      "score": 18.533231
-    },
-    {
-      "doc_id": 650,
-      "url": "http://archive.ics.uci.edu/ml/support/Dermatology#692880d7b3356df64bfa0f06a683f89e4ce6955b",
-      "score": 18.533231
-    },
-    {
-      "doc_id": 1081,
-      "url": "http://archive.ics.uci.edu/ml/datasets/Breast+Cancer",
-      "score": 18.533231
     }
   ],
   "machine learning": [
     {
-      "doc_id": 4594,
-      "url": "https://cml.ics.uci.edu/category/aiml/page/2/#content",
-      "score": 50.107128
-    },
-    {
-      "doc_id": 4610,
-      "url": "https://cml.ics.uci.edu/category/aiml/page/2/",
-      "score": 50.107128
-    },
-    {
       "doc_id": 4597,
-      "url": "https://cml.ics.uci.edu/category/aiml/#content",
-      "score": 48.687095
+      "url": "https://cml.ics.uci.edu/category/aiml/",
+      "score": 54.736605
     },
     {
-      "doc_id": 4733,
-      "url": "https://cml.ics.uci.edu/category/aiml/",
-      "score": 48.687095
+      "doc_id": 4594,
+      "url": "https://cml.ics.uci.edu/category/aiml/page/2/",
+      "score": 54.380582
     },
     {
       "doc_id": 4513,
       "url": "https://cml.ics.uci.edu/category/aiml/page/3/",
-      "score": 40.281217
+      "score": 45.98036
+    },
+    {
+      "doc_id": 4694,
+      "url": "https://cml.ics.uci.edu/aiml/page/22/",
+      "score": 44.274565
+    },
+    {
+      "doc_id": 4590,
+      "url": "https://cml.ics.uci.edu/2012/09/fall-2012/",
+      "score": 44.123887
     }
   ],
   "ACM": [
     {
       "doc_id": 4372,
       "url": "https://chenli.ics.uci.edu/publications/",
+      "score": 27.020549
+    },
+    {
+      "doc_id": 4422,
+      "url": "http://cloudberry.ics.uci.edu/cloudberry-at-acm-sigspatial-2016/",
+      "score": 25.275047
+    },
+    {
+      "doc_id": 4567,
+      "url": "https://cml.ics.uci.edu/2014/02/2014_acmfellows/",
+      "score": 25.275047
+    },
+    {
+      "doc_id": 4456,
+      "url": "https://cml.ics.uci.edu/2017/06/singh-talk-oc-acm-chapter/",
       "score": 24.76033
     },
     {
-      "doc_id": 831,
-      "url": "http://archive.ics.uci.edu/ml/datasets/SMS+Spam+Collection",
-      "score": 20.460798
-    },
-    {
-      "doc_id": 1297,
-      "url": "http://asterix.ics.uci.edu/fuzzyjoin/",
-      "score": 20.460798
-    },
-    {
-      "doc_id": 1301,
-      "url": "http://asterix.ics.uci.edu//publications.html",
-      "score": 18.123832
-    },
-    {
-      "doc_id": 30,
-      "url": "http://archive.ics.uci.edu/ml/datasets/DeliciousMIL%3A+A+Data+Set+for+Multi-Label+Multi-Instance+Learning+with+Instance+Labels",
-      "score": 16.57399
+      "doc_id": 4535,
+      "url": "https://cml.ics.uci.edu/2009/06/2009_smythaward/",
+      "score": 24.204394
     }
   ],
   "master of software engineering": [
     {
       "doc_id": 4594,
-      "url": "https://cml.ics.uci.edu/category/aiml/page/2/#content",
-      "score": 51.109327
-    },
-    {
-      "doc_id": 4610,
       "url": "https://cml.ics.uci.edu/category/aiml/page/2/",
-      "score": 51.109327
+      "score": 78.889819
     },
     {
       "doc_id": 4597,
-      "url": "https://cml.ics.uci.edu/category/aiml/#content",
-      "score": 40.241604
-    },
-    {
-      "doc_id": 4733,
       "url": "https://cml.ics.uci.edu/category/aiml/",
-      "score": 40.241604
+      "score": 66.483062
     },
     {
-      "doc_id": 1140,
-      "url": "http://archive.ics.uci.edu/ml/datasets/Data+for+Software+Engineering+Teamwork+Assessment+in+Education+Setting",
-      "score": 39.84088
+      "doc_id": 4582,
+      "url": "https://cml.ics.uci.edu/2015/03/spring-2015/",
+      "score": 51.928932
+    },
+    {
+      "doc_id": 4736,
+      "url": "https://cml.ics.uci.edu/aiml/page/13/",
+      "score": 51.928932
+    },
+    {
+      "doc_id": 4345,
+      "url": "http://cert.ics.uci.edu/SAFIRE/publications.html",
+      "score": 48.081323
     }
   ]
 }

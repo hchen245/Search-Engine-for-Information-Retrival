@@ -25,6 +25,13 @@ MAX_TERMS_IN_MEMORY = 50000
 stemmer = PorterStemmer()
 
 
+def strip_fragment(url):
+    """Return URL without fragment part (#...)."""
+    if not isinstance(url, str):
+        return ""
+    return url.split("#", 1)[0]
+
+
 def extract_text_from_html(html_content):
     """Extract full visible text and boosted-important text from HTML."""
     soup = BeautifulSoup(html_content, 'lxml')
@@ -150,16 +157,24 @@ if __name__ == "__main__":
     doc_id = 1
     part_num = 1
 
-    print("Starting document processing...")  # DEBUG
+    # Ensure a clean rebuild of partial indexes.
+    if os.path.isdir("partial_indexes"):
+        for filename in os.listdir("partial_indexes"):
+            if filename.startswith("partial_") and filename.endswith(".txt"):
+                try:
+                    os.remove(os.path.join("partial_indexes", filename))
+                except OSError:
+                    pass
+
+    print("Starting document processing...")
     for root, dirs, files in os.walk(DATA_PATH):
         for file in files:
-            print("Processing:", file)  # DEBUG
             if file.endswith(".json"):
                 path = os.path.join(root, file)
                 with open(path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
 
-                doc_id_to_url[doc_id] = data.get("url", "")
+                doc_id_to_url[doc_id] = strip_fragment(data.get("url", ""))
                     
                 text, important_text = extract_text_from_html(data['content'])
                 tokens = tokenize(text)
@@ -173,7 +188,7 @@ if __name__ == "__main__":
 
                 # Flush to disk when term dictionary gets too large.
                 if len(inverted_index) >= MAX_TERMS_IN_MEMORY:
-                    print("Writing partial index:", part_num)  # DEBUG
+                    print("Writing partial index:", part_num)
                     write_partial_index(inverted_index, part_num)
                     inverted_index.clear()
                     part_num += 1
