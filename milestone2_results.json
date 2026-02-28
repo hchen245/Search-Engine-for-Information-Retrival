@@ -1,9 +1,29 @@
 {
   "cristina lopes": [
     {
+      "doc_id": 827,
+      "url": "http://archive.ics.uci.edu/ml/datasets/Robot+Execution+Failures",
+      "score": 23.044427
+    },
+    {
       "doc_id": 4372,
       "url": "https://chenli.ics.uci.edu/publications/",
       "score": 19.654798
+    },
+    {
+      "doc_id": 328,
+      "url": "http://archive.ics.uci.edu/ml/datasets/Dermatology",
+      "score": 18.533231
+    },
+    {
+      "doc_id": 650,
+      "url": "http://archive.ics.uci.edu/ml/support/Dermatology#692880d7b3356df64bfa0f06a683f89e4ce6955b",
+      "score": 18.533231
+    },
+    {
+      "doc_id": 1081,
+      "url": "http://archive.ics.uci.edu/ml/datasets/Breast+Cancer",
+      "score": 18.533231
     }
   ],
   "machine learning": [
@@ -82,9 +102,9 @@
       "score": 40.241604
     },
     {
-      "doc_id": 4582,
-      "url": "https://cml.ics.uci.edu/2015/03/spring-2015/",
-      "score": 31.124466
+      "doc_id": 1140,
+      "url": "http://archive.ics.uci.edu/ml/datasets/Data+for+Software+Engineering+Teamwork+Assessment+in+Education+Setting",
+      "score": 39.84088
     }
   ]
 }
