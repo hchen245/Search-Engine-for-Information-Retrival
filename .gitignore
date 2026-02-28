@@ -22,6 +22,7 @@ build/
 partial_indexes/
 final_index/
 *.txt
+DEV/
 
 # OS
 .DS_Store
