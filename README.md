@@ -80,7 +80,8 @@ python search.py --interactive --mode and --topk 5
 - `--query "..."` : run one query
 - `--milestone2` : run the 4 required milestone queries
 - `--interactive` : start CLI search loop
-- `--mode {and,or}` : Boolean retrieval mode (default: `and`)
+- `--mode {and,or}` : Boolean retrieval mode (default: `and`; AND mode auto-falls back to OR if results are fewer than `topk`)
+- `--strict-and` : disable AND→OR fallback and keep strict AND behavior
 - `--topk N` : number of returned results (default: `5`)
 - `--output path.json` : save results to JSON
 

@@ -208,13 +208,51 @@ def and_search(query, doc_id_map, top_k=5, mode="and"):
     return results
 
 
-def run_milestone_queries(doc_id_map, top_k=5, mode="and"):
+def search_with_fallback(query, doc_id_map, top_k=5, mode="and", fallback_or=True):
+    """Search with optional AND-first then OR fallback.
+
+    Behavior:
+    - mode=or: regular OR retrieval
+    - mode=and and fallback_or=False: strict AND retrieval
+    - mode=and and fallback_or=True: run AND first; if fewer than top_k,
+      backfill remaining slots using OR results (deduplicated)
+    """
+    mode = mode.lower()
+    if mode == "or" or not fallback_or:
+        return and_search(query, doc_id_map, top_k=top_k, mode=mode)
+
+    and_results = and_search(query, doc_id_map, top_k=top_k, mode="and")
+    if len(and_results) >= top_k:
+        return and_results
+
+    or_results = and_search(query, doc_id_map, top_k=top_k * 5, mode="or")
+    seen_doc_ids = {item["doc_id"] for item in and_results}
+    merged = list(and_results)
+
+    for item in or_results:
+        if item["doc_id"] in seen_doc_ids:
+            continue
+        merged.append(item)
+        seen_doc_ids.add(item["doc_id"])
+        if len(merged) >= top_k:
+            break
+
+    return merged
+
+
+def run_milestone_queries(doc_id_map, top_k=5, mode="and", fallback_or=True):
     """Execute the 4 required milestone queries and print top results."""
     all_results = {}
     for i, query in enumerate(MILESTONE_QUERIES, start=1):
         print("=" * 80)
         print(f"Query {i}: {query}")
-        results = and_search(query, doc_id_map, top_k=top_k, mode=mode)
+        results = search_with_fallback(
+            query,
+            doc_id_map,
+            top_k=top_k,
+            mode=mode,
+            fallback_or=fallback_or,
+        )
         all_results[query] = results
 
         if not results:
@@ -227,7 +265,7 @@ def run_milestone_queries(doc_id_map, top_k=5, mode="and"):
     return all_results
 
 
-def interactive_mode(doc_id_map, top_k=5, mode="and"):
+def interactive_mode(doc_id_map, top_k=5, mode="and", fallback_or=True):
     """Start simple CLI loop for manual query testing."""
     print(f"Search interface started. Type a query ({mode.upper()} semantics). Type 'exit' to quit.")
 
@@ -237,7 +275,13 @@ def interactive_mode(doc_id_map, top_k=5, mode="and"):
             print("Bye.")
             break
 
-        results = and_search(query, doc_id_map, top_k=top_k, mode=mode)
+        results = search_with_fallback(
+            query,
+            doc_id_map,
+            top_k=top_k,
+            mode=mode,
+            fallback_or=fallback_or,
+        )
         if not results:
             print("No results found.")
             continue
@@ -248,14 +292,19 @@ def interactive_mode(doc_id_map, top_k=5, mode="and"):
 
 def main():
     """CLI entry point."""
-    parser = argparse.ArgumentParser(description="Boolean AND retrieval for milestone 2")
+    parser = argparse.ArgumentParser(description="Boolean retrieval for milestone 2")
     parser.add_argument("--query", type=str, help="Single query to run")
     parser.add_argument("--topk", type=int, default=5, help="Top K results (default: 5)")
     parser.add_argument(
         "--mode",
         choices=["and", "or"],
         default="and",
-        help="Boolean retrieval mode (default: and)",
+        help="Boolean retrieval mode (default: and). In AND mode, OR fallback is enabled unless --strict-and is set.",
+    )
+    parser.add_argument(
+        "--strict-and",
+        action="store_true",
+        help="Disable AND->OR fallback when --mode and is used",
     )
     parser.add_argument(
         "--milestone2",
@@ -275,9 +324,15 @@ def main():
     args = parser.parse_args()
 
     doc_id_map = build_doc_id_map_if_missing()
+    fallback_or = not args.strict_and
 
     if args.milestone2:
-        milestone_results = run_milestone_queries(doc_id_map, top_k=args.topk, mode=args.mode)
+        milestone_results = run_milestone_queries(
+            doc_id_map,
+            top_k=args.topk,
+            mode=args.mode,
+            fallback_or=fallback_or,
+        )
         if args.output:
             with open(args.output, "w", encoding="utf-8") as f:
                 json.dump(milestone_results, f, ensure_ascii=False, indent=2)
@@ -285,7 +340,13 @@ def main():
         return
 
     if args.query:
-        results = and_search(args.query, doc_id_map, top_k=args.topk, mode=args.mode)
+        results = search_with_fallback(
+            args.query,
+            doc_id_map,
+            top_k=args.topk,
+            mode=args.mode,
+            fallback_or=fallback_or,
+        )
         if not results:
             print("No results found.")
             return
@@ -297,7 +358,7 @@ def main():
             print(f"Saved results to {args.output}")
         return
 
-    interactive_mode(doc_id_map, top_k=args.topk, mode=args.mode)
+    interactive_mode(doc_id_map, top_k=args.topk, mode=args.mode, fallback_or=fallback_or)
 
 
 if __name__ == "__main__":
