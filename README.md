@@ -45,6 +45,12 @@ Install dependencies:
 pip install beautifulsoup4 lxml nltk flask
 ```
 
+If you are **not** using a virtual environment, install Flask globally for your current Python:
+
+```bash
+python -m pip install flask
+```
+
 ## Build the Index
 
 Run indexing first (required before search):
