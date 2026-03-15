@@ -7,6 +7,7 @@ import time
 import warnings
 from urllib.parse import urljoin, urlparse, urlunparse
 from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning, MarkupResemblesLocatorWarning
+import ipaddress
 from nltk.stem import PorterStemmer
 from collections import defaultdict
 
@@ -27,11 +28,22 @@ Pipeline:
 
 DATA_PATH = "DEV"
 
+# Cap in-memory term dictionary size before flushing a partial index to disk.
+# 控制内存中倒排词典的上限；达到阈值后就写出 partial index。
 MAX_TERMS_IN_MEMORY = 50000
+
+# Disk layout for intermediate and final index artifacts.
+# 中间索引和最终索引的磁盘目录布局。
 PARTIAL_INDEX_DIR = "partial_indexes"
 FINAL_INDEX_DIR = "final_index"
+
+# Main content index and positional index files.
+# 主内容索引和位置索引文件。
 FINAL_INDEX_FILE = os.path.join(FINAL_INDEX_DIR, "final_index.txt")
 POSITION_INDEX_FILE = os.path.join(FINAL_INDEX_DIR, "positions_index.txt")
+
+# Metadata files used by the search component at query time.
+# 查询阶段会读取的元数据文件。
 DOC_MAP_PATH = os.path.join(FINAL_INDEX_DIR, "doc_id_map.json")
 LEXICON_PATH = os.path.join(FINAL_INDEX_DIR, "lexicon.tsv")
 LEXICON_SPARSE_PATH = os.path.join(FINAL_INDEX_DIR, "lexicon_sparse.tsv")
@@ -39,18 +51,35 @@ POSITION_LEXICON_PATH = os.path.join(FINAL_INDEX_DIR, "positions_lexicon.tsv")
 POSITION_SPARSE_PATH = os.path.join(FINAL_INDEX_DIR, "positions_lexicon_sparse.tsv")
 DOC_META_PATH = os.path.join(FINAL_INDEX_DIR, "doc_meta.json")
 PAGERANK_PATH = os.path.join(FINAL_INDEX_DIR, "pagerank.json")
+
+# Sparse lexicon sampling interval: every Nth term gets an anchor offset.
+# sparse lexicon 的采样步长：每隔 N 个 term 保存一个锚点偏移。
 SPARSE_STRIDE = 128
+
+# SimHash configuration for near-duplicate detection.
+# SimHash 近重复检测相关配置。
 SIMHASH_BITS = 64
 SIMHASH_HAMMING_THRESHOLD = 3
 SIMHASH_BANDS = 4
+
+# PageRank iteration parameters.
+# PageRank 迭代参数。
 PAGERANK_DAMPING = 0.85
 PAGERANK_MAX_ITER = 30
 PAGERANK_TOL = 1e-8
+
+# Retrieval-oriented weighting knobs written into the index.
+# 为检索效果服务的权重参数，会体现在索引内容里。
 ANCHOR_BOOST = 3
 BIGRAM_PREFIX = "__bg__"
 BIGRAM_BOOST = 2
+
+# Progress logging frequency during long indexing runs.
+# 长时间建索引时的进度输出频率。
 PROGRESS_EVERY = 1000
 
+# Shared stemmer for both document tokens and query-time compatibility.
+# 统一使用 Porter stemmer，保证文档侧和查询侧词干规则一致。
 stemmer = PorterStemmer()
 
 
@@ -66,13 +95,29 @@ def normalize_url(url):
     if not isinstance(url, str):
         return ""
 
-    clean_url = strip_fragment(url.strip())
+    clean_url = strip_fragment(url.strip()) #move whitespace + fragments
     if not clean_url:
         return ""
 
-    parsed = urlparse(clean_url)
+    try:
+        parsed = urlparse(clean_url) #parse URL into components, will raise ValueError if malformed
+    except ValueError:
+        return ""
+
+    # Keep only crawlable web URLs so the link graph stays consistent.
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         return ""
+
+    host = parsed.hostname
+    if not isinstance(host, str) or not host:
+        return ""
+
+    # Python 3.13 is stricter on malformed bracketed hosts like [YOUR_IP], and legal should be [2001:db8::1]
+    if "[" in parsed.netloc or "]" in parsed.netloc:
+        try:
+            ipaddress.ip_address(host)
+        except ValueError:
+            return ""
 
     path = parsed.path if parsed.path else "/"
     return urlunparse(
@@ -90,7 +135,7 @@ def normalize_url(url):
 def extract_text_from_html(html_content, base_url):
     """Extract visible text, important text, outlinks, and anchor texts with targets."""
     soup = BeautifulSoup(html_content, 'lxml')
-    # Keep important fields separately so they can be weighted higher.
+    # 将重要文本单独保存，后续索引时给予更高权重。
     important_text = []
     outlinks = set()
     anchor_pairs = []
@@ -108,17 +153,30 @@ def extract_text_from_html(html_content, base_url):
     for bold in soup.find_all(['b', 'strong']):
         important_text.append(bold.get_text())
 
-    # Outgoing links (absolute, normalized)
-    for anchor in soup.find_all('a', href=True):
+    # Normalize outgoing links for PageRank / anchor-text propagation.
+    safe_base_url = base_url if isinstance(base_url, str) else ""
+
+    for anchor in soup.find_all('a', href=True): #only href-containing anchors are relevant for link graph
         href = anchor.get('href')
-        if not href:
+        if not isinstance(href, str) or not href.strip():
             continue
-        absolute_url = urljoin(base_url, href)
+
+        href = href.strip()
+        # These schemes are navigation/UI actions, not real crawl targets.
+        if href.startswith(("javascript:", "mailto:", "tel:")): #not real crawl targets
+            continue
+
+        try:
+            absolute_url = urljoin(safe_base_url, href) # urljoin resolves relative links into absolute URLs, using the current page URL as the base
+        except (ValueError, TypeError):
+            continue
+
         normalized = normalize_url(absolute_url)
         if not normalized:
             continue
 
         outlinks.add(normalized)
+        #store (target_url, anchor_text) pairs for potential anchor text signals.
         anchor_text = anchor.get_text(separator=' ', strip=True)
         if anchor_text:
             anchor_pairs.append((normalized, anchor_text))
@@ -151,13 +209,16 @@ def compute_simhash(tokens, bits=SIMHASH_BITS):
     """Compute SimHash fingerprint from token frequencies."""
     if not tokens:
         return 0
-
+    #simhash is weighted by tf, so repeated terms contribute more strongly
     token_freq = defaultdict(int)
     for token in tokens:
         token_freq[token] += 1
 
-    vector = [0] * bits
+    # SimHash turns a bag of words into a compact fingerprint.
+    # SimHash: every token votes for each bit, weighted by its frequency
+    vector = [0] * bits #64 bits
     for token, weight in token_freq.items():
+        # I use MD5 here only as a deterministic token hash, not for security
         digest = hashlib.md5(token.encode("utf-8")).hexdigest()
         token_hash = int(digest, 16)
         for bit_idx in range(bits):
@@ -175,14 +236,17 @@ def compute_simhash(tokens, bits=SIMHASH_BITS):
 
 def hamming_distance(a, b):
     """Return Hamming distance between two integer bit fingerprints."""
+    # the number of 1 is the Hamming distance
     return bin(a ^ b).count("1")
 
 
 def is_near_duplicate(simhash_value, bucket_map, simhash_store):
     """Check if document is near duplicate using banded candidate lookup."""
-    band_size = SIMHASH_BITS // SIMHASH_BANDS
+    band_size = SIMHASH_BITS // SIMHASH_BANDS #cut 64-bit simhash into 4 bands of 16 bits each
     candidate_ids = set()
 
+    # LSH-style banding: only compare with documents sharing one band. Use each band as
+    # a bucket key to retrieve only likely similar documents.
     for band_idx in range(SIMHASH_BANDS):
         shift = band_idx * band_size
         mask = (1 << band_size) - 1
@@ -191,6 +255,7 @@ def is_near_duplicate(simhash_value, bucket_map, simhash_store):
 
     for candidate_doc_id in candidate_ids:
         candidate_hash = simhash_store[candidate_doc_id]
+        # if candidate distance <=3, then near duplicate
         if hamming_distance(simhash_value, candidate_hash) <= SIMHASH_HAMMING_THRESHOLD:
             return True
 
@@ -213,8 +278,9 @@ def compute_pagerank(adjacency, total_docs):
         return {}
 
     docs = list(range(1, total_docs + 1))
-    rank = {doc_id: 1.0 / total_docs for doc_id in docs}
+    rank = {doc_id: 1.0 / total_docs for doc_id in docs} #we assume all accepted documents start with equal PageRank
 
+    # pages vote to pages they link to, and dangling pages are handled separately
     for _ in range(PAGERANK_MAX_ITER):
         new_rank = {doc_id: (1.0 - PAGERANK_DAMPING) / total_docs for doc_id in docs}
         dangling_mass = 0.0
@@ -228,11 +294,11 @@ def compute_pagerank(adjacency, total_docs):
             contribution = rank[doc_id] / len(targets)
             for target_id in targets:
                 new_rank[target_id] += PAGERANK_DAMPING * contribution
-
+        # dangling pages are distributed uniformly to all pages each iteration
         dangling_share = PAGERANK_DAMPING * dangling_mass / total_docs
         for doc_id in docs:
             new_rank[doc_id] += dangling_share
-
+        # stop when the L1 delta drops below the tolerance or when max iterartions are reached
         delta = sum(abs(new_rank[doc_id] - rank[doc_id]) for doc_id in docs)
         rank = new_rank
         if delta < PAGERANK_TOL:
@@ -254,11 +320,13 @@ def build_index_for_one_doc(doc_id, tokens, important_tokens, anchor_tokens, inv
     for token in important_tokens:
         term_freq[token] += 5
 
-    # Anchor tokens pointing to this page get a small boost.
+    # Anchor text helps when other pages describe this page using useful terms.
+    # 其他页面指向当前页面的锚文本，能补充页面自身没有明确写出的关键词。
     for token in anchor_tokens:
         term_freq[token] += ANCHOR_BOOST
 
-    # Index 2-gram terms for phrase-aware retrieval.
+    # Bigram features help phrase-like queries during retrieval.
+    # 2-gram 特征有助于提升短语型查询的排序效果。
     for bigram_term in build_bigram_terms(tokens):
         term_freq[bigram_term] += BIGRAM_BOOST
     
@@ -366,6 +434,8 @@ def merge_partials_streaming():
     if not partial_files:
         raise FileNotFoundError("No partial index files found.")
 
+    # K-way merge keeps memory small: only one line from each partial file is live.
+    # K 路归并能控制内存占用：每个 partial file 同时只保留一行在内存中。
     handles = []
     heap = []
 
@@ -386,6 +456,8 @@ def merge_partials_streaming():
             current_term = heap[0][0]
             merged_postings = defaultdict(int)
 
+            # Merge postings for the same term across all partial indexes.
+            # 把同一 term 在多个 partial index 中的 postings 合并起来。
             while heap and heap[0][0] == current_term:
                 _, file_idx, postings = heapq.heappop(heap)
                 for doc_id, tf in postings.items():
@@ -449,6 +521,8 @@ def merge_positional_partials_streaming():
             current_term = heap[0][0]
             merged_postings = defaultdict(list)
 
+            # Positional postings are merged by concatenating then sorting positions.
+            # 位置索引先拼接再排序，保留每个 term 在文档中的全部位置。
             while heap and heap[0][0] == current_term:
                 _, file_idx, postings = heapq.heappop(heap)
                 for doc_id, positions in postings.items():
@@ -505,6 +579,8 @@ if __name__ == "__main__":
                 except OSError:
                     pass
 
+    # Pass 1 accepts only non-duplicate documents and builds the link graph.
+    # 第一轮先做去重，并抽取链接图与锚文本，后续才能计算 PageRank 和 anchor boost。
     print("Pass 1/2: dedup + link/anchor extraction...", flush=True)
     pass1_start = time.time()
     for root, dirs, files in os.walk(DATA_PATH):
@@ -529,6 +605,8 @@ if __name__ == "__main__":
                     flush=True,
                 )
 
+            # Near-duplicate filtering reduces wasted index space and noisy rankings.
+            # 近重复过滤可以减少索引冗余，也能避免相似页面污染排序结果。
             simhash_value = compute_simhash(tokens)
             if is_near_duplicate(simhash_value, simhash_bucket_map, simhash_store):
                 near_duplicate_skips += 1
@@ -558,6 +636,8 @@ if __name__ == "__main__":
         if normalized_url and normalized_url not in url_to_doc_id:
             url_to_doc_id[normalized_url] = record["doc_id"]
 
+    # Convert URL-level edges into doc-id edges for PageRank / anchor propagation.
+    # 把 URL 级别的链接映射成 doc_id 级别，供 PageRank 和锚文本传播使用。
     anchor_tokens_by_target_doc = defaultdict(list)
     adjacency = {current_doc_id: set() for current_doc_id in range(1, total_docs + 1)}
 
@@ -578,6 +658,8 @@ if __name__ == "__main__":
             if tokens:
                 anchor_tokens_by_target_doc[target_doc_id].extend(tokens)
 
+    # Pass 2 builds the actual inverted index only for accepted documents.
+    # 第二轮只为保留下来的文档建索引，避免给重复页浪费磁盘和时间。
     print("Pass 2/2: building content + positional indexes...", flush=True)
     inverted_index = defaultdict(dict)
     positional_index = defaultdict(dict)
@@ -617,6 +699,8 @@ if __name__ == "__main__":
                 flush=True,
             )
 
+        # Flush to disk when the in-memory map grows too large.
+        # 当内存中的倒排表达到阈值时立刻落盘，满足小内存约束。
         if len(inverted_index) >= MAX_TERMS_IN_MEMORY:
             print("Writing partial indexes:", part_num)
             write_partial_index(inverted_index, part_num)
@@ -651,6 +735,8 @@ if __name__ == "__main__":
         json.dump(doc_meta, f, ensure_ascii=False)
     print(f"Document metadata written to {DOC_META_PATH}")
 
+    # PageRank is computed after the full link graph is known.
+    # 必须在完整链接图构建完成后，才能计算 PageRank。
     pagerank_scores = compute_pagerank(adjacency, total_docs)
     with open(PAGERANK_PATH, "w", encoding="utf-8") as f:
         json.dump({str(doc_key): score for doc_key, score in pagerank_scores.items()}, f, ensure_ascii=False)

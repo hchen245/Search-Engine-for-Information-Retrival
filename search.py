@@ -115,6 +115,8 @@ def build_doc_id_map_if_missing():
     The mapping is needed because postings store doc IDs while report output
     requires URLs.
     """
+    # Search results are stored as doc IDs, but demos/reports need URLs.
+    # 检索结果内部用 doc_id，展示给用户和 TA 时需要映射回 URL。
     if os.path.exists(DOC_MAP_PATH):
         with open(DOC_MAP_PATH, "r", encoding="utf-8") as f:
             raw = json.load(f)
@@ -173,8 +175,8 @@ def load_sparse_lexicon():
             "Missing final_index/lexicon_sparse.tsv. Re-run `python indexer.py` to generate it."
         )
 
-    terms = []
-    offsets = []
+    terms = [] #anchor terms for binary search in lexicon.tsv
+    offsets = [] #corresponding byte offsets in lexicon.tsv
     with open(LEXICON_SPARSE_PATH, "r", encoding="utf-8") as f:
         for line in f:
             parts = line.rstrip("\n").split("\t")
@@ -212,6 +214,8 @@ def load_sparse_position_lexicon():
     return terms, offsets
 
 
+# This is a lexicon lookpu model that combines sparse skip pointers + local sequential scanning + LRU caching
+# it replace full table sacn with short scan after binary search positioning, reducing query I/O
 @lru_cache(maxsize=50000)
 def find_lexicon_entry(term):
     """Find one term in lexicon.tsv using sparse checkpoints and local scan."""
@@ -348,6 +352,8 @@ def blend_scores_with_pagerank(scored, pagerank_scores, pr_weight):
     if not scored:
         return []
 
+    # Keep PageRank as a light authority signal instead of letting it dominate.
+    # 把 PageRank 作为轻量级“权威度”信号，而不是压过文本相关性。
     safe_weight = max(0.0, min(1.0, pr_weight))
     if safe_weight <= 0 or not pagerank_scores:
         return scored
@@ -360,6 +366,8 @@ def blend_scores_with_pagerank(scored, pagerank_scores, pr_weight):
     if max_pr <= 0:
         max_pr = 1.0
 
+    # Normalize both sides before blending so BM25/TF-IDF scale differences do not matter.
+    # 先归一化内容分数和 PageRank，避免不同分数尺度直接相加失真。
     blended = []
     for doc_id, base_score in scored:
         base_norm = base_score / max_base
@@ -374,6 +382,8 @@ def blend_scores_with_pagerank(scored, pagerank_scores, pr_weight):
 @lru_cache(maxsize=20000)
 def load_term_postings_by_seek(term, byte_offset):
     """Read one postings list using byte offset from lexicon."""
+    # Direct seek avoids scanning the entire inverted index for every query.
+    # 通过字节偏移直接定位 postings，避免每次查询都顺序扫描整份倒排索引。
     with open(FINAL_INDEX_FILE, "r", encoding="utf-8") as f:
         f.seek(byte_offset)
         line = f.readline()
@@ -470,6 +480,8 @@ def compute_min_cover_window(term_positions_lists):
     pointers = [0] * len(term_positions_lists)
     best = None
 
+    # Sliding multiple pointers finds the tightest span containing all query terms.
+    # 多指针滑动用于找到覆盖所有查询词的最小窗口。
     while True:
         current_positions = []
         for idx, positions in enumerate(term_positions_lists):
@@ -504,6 +516,8 @@ def apply_proximity_boost(scored, unique_terms, positions_by_term):
             boosted.append((doc_id, base_score))
             continue
 
+        # Smaller windows usually indicate phrase-like relevance.
+        # 更小的窗口通常意味着这些词在文档中更像一个短语或紧密主题。
         min_window = compute_min_cover_window(lists)
         if min_window is None:
             boosted.append((doc_id, base_score))
@@ -522,6 +536,8 @@ def apply_bigram_boost(scored, query_bigram_terms, bigram_postings_by_term):
         return scored
 
     boosted = []
+    # Bigram matches reward local phrase consistency beyond unigram overlap.
+    # 命中 2-gram 可以奖励局部短语一致性，而不仅仅是单词重合。
     total_bigrams = len(query_bigram_terms)
     for doc_id, base_score in scored:
         matched = 0
@@ -551,6 +567,8 @@ def collect_candidate_docs(postings_by_term, terms, top_k, mode="hybrid"):
         for doc_id in postings_by_term[term]:
             match_counts[doc_id] += 1
 
+    # strict = pure AND; hybrid = AND first, then progressively relax overlap.
+    # strict 是纯 AND；hybrid 先做 AND，再逐步降低最少匹配词数。
     if mode == "strict":
         return strict_candidates, match_counts
 
@@ -560,7 +578,8 @@ def collect_candidate_docs(postings_by_term, terms, top_k, mode="hybrid"):
     if not available_terms:
         return set(), match_counts
 
-    # Soft fallback: progressively lower minimum matched terms.
+    # Start from a relatively high overlap threshold, not plain OR.
+    # 从较高重合度开始放宽，而不是一开始就退化成 OR。
     max_term_matches = len(available_terms)
     initial_min_match = max(1, math.ceil(len(terms) * 0.6))
     initial_min_match = min(initial_min_match, max_term_matches)
@@ -582,6 +601,8 @@ def score_candidates_bm25(candidates, terms, postings_by_term, doc_meta, match_c
     avg_doc_len = doc_meta["avg_doc_len"]
     doc_lengths = doc_meta["doc_lengths"]
 
+    # Standard BM25 parameters: k1 controls TF saturation, b controls length normalization.
+    # BM25 常用参数：k1 控制词频饱和，b 控制文档长度归一化强度。
     k1 = 1.2
     b = 0.75
     unique_terms = list(dict.fromkeys(terms))
@@ -608,6 +629,8 @@ def score_candidates_bm25(candidates, terms, postings_by_term, doc_meta, match_c
             denominator = tf + k1 * (1 - b + b * (doc_len / avg_doc_len))
             score += idf[term] * (numerator / denominator)
 
+        # Coordination favors documents matching more distinct query terms.
+        # coordination 会偏好命中更多不同查询词的文档。
         coordination = match_counts.get(doc_id, 0) / len(unique_terms)
         score *= (0.7 + 0.3 * coordination)
         scored.append((doc_id, score))
@@ -621,6 +644,8 @@ def score_candidates_tfidf(candidates, terms, postings_by_term, total_docs, matc
     if not candidates:
         return []
 
+    # TF-IDF is kept mainly as a baseline for comparison against BM25.
+    # TF-IDF 主要作为和 BM25 对比的 baseline 保留。
     unique_terms = list(dict.fromkeys(terms))
     idf = {}
     for term in unique_terms:
@@ -653,6 +678,8 @@ def and_search(query, doc_id_map, top_k=5, mode="hybrid", ranking="bm25", use_pa
     global doc_meta_cache
     global pagerank_cache
 
+    # Query latency is measured end-to-end for benchmark reporting.
+    # 查询延迟按端到端方式计时，用于 benchmark 统计。
     start = time.perf_counter()
     terms = normalize_query(query)
     if not terms:
@@ -660,6 +687,8 @@ def and_search(query, doc_id_map, top_k=5, mode="hybrid", ranking="bm25", use_pa
 
     unique_terms = list(dict.fromkeys(terms))
     query_bigram_terms = build_bigram_terms(terms)
+    # Only query-time-needed postings are loaded; the full index stays on disk.
+    # 只加载当前查询需要的 postings，完整索引始终留在磁盘上。
     postings_by_term = load_query_postings(terms)
     bigram_postings_by_term = load_query_postings(query_bigram_terms)
     positions_by_term = load_query_positions(unique_terms)
@@ -679,6 +708,8 @@ def and_search(query, doc_id_map, top_k=5, mode="hybrid", ranking="bm25", use_pa
         if doc_meta_cache.get("total_docs", 0) <= 0:
             doc_meta_cache["total_docs"] = len(doc_id_map)
 
+    # Content ranking happens first, then proximity/bigram/PageRank refinements are layered on top.
+    # 先做内容相关性排序，再叠加 proximity、bigram、PageRank 等增强信号。
     if ranking == "tfidf":
         scored = score_candidates_tfidf(
             candidate_docs,
@@ -704,6 +735,8 @@ def and_search(query, doc_id_map, top_k=5, mode="hybrid", ranking="bm25", use_pa
             pagerank_cache = load_pagerank_scores()
         scored = blend_scores_with_pagerank(scored, pagerank_cache, pr_weight)
 
+    # Deduplicate URLs in case multiple doc IDs collapse to the same canonical URL.
+    # 如果多个 doc_id 最终对应同一规范化 URL，这里只展示一次。
     results = []
     seen_urls = set()
     for doc_id, score in scored:
@@ -779,6 +812,8 @@ def run_milestone3_benchmark(
     benchmark_results = {}
     latencies = []
 
+    # The benchmark mixes hard and easy queries to test both effectiveness and efficiency.
+    # benchmark 同时包含难查询和易查询，用来观察效果与效率两方面表现。
     for i, query in enumerate(MILESTONE3_BENCHMARK_QUERIES, start=1):
         results = and_search(
             query,
@@ -803,6 +838,8 @@ def run_milestone3_benchmark(
         print(f"[{i:02d}] {query} -> {round(elapsed_ms, 3)} ms, {len(results)} results")
 
     if latencies:
+        # Report simple latency summary statistics for milestone write-up.
+        # 输出基础延迟统计，便于直接写入 milestone report。
         sorted_latencies = sorted(latencies)
         p90_index = max(0, int(len(sorted_latencies) * 0.9) - 1)
         avg_latency = sum(latencies) / len(latencies)
@@ -829,6 +866,8 @@ def run_milestone3_benchmark(
 
 def interactive_mode(doc_id_map, top_k=5, mode="hybrid", ranking="bm25", use_pagerank=True, pr_weight=0.2):
     """Start simple CLI loop for manual query testing."""
+    # Useful during demos when we want to try ad-hoc queries quickly.
+    # 适合 demo 时快速手动试查询。
     print(
         "Search interface started. "
         f"Mode={mode}, Ranking={ranking}. Type a query. Type 'exit' to quit."
@@ -862,6 +901,8 @@ def interactive_mode(doc_id_map, top_k=5, mode="hybrid", ranking="bm25", use_pag
 
 def main():
     """CLI entry point."""
+    # CLI keeps experiments reproducible: same query, same mode, same ranking options.
+    # 命令行参数让实验可复现：相同 query、mode、ranking 都能稳定复跑。
     parser = argparse.ArgumentParser(description="Milestone 3 search (strict AND + hybrid soft fallback)")
     parser.add_argument("--query", type=str, help="Single query to run")
     parser.add_argument("--topk", type=int, default=5, help="Top K results (default: 5)")
