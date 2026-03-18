@@ -7,6 +7,10 @@ This project includes:
 - **Retriever (`search.py`)**: supports strict AND retrieval and hybrid fallback retrieval with BM25 ranking.
 - **Web App (`web_app.py`)**: local web search interface (Flask).
 
+## Demo
+
+https://github.com/user-attachments/assets/07bfa0c5-0d5a-46b2-a89a-6e5d261b1542
+
 ## Features
 
 - Parse HTML and extract visible text with important tags boost (`title`, `h1-h3`, `b/strong`)
